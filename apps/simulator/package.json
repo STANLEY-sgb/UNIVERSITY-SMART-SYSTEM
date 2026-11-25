@@ -1,0 +1,17 @@
+{
+  "name": "@kiu/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Virtual card / reader simulator and attack-scenario runner. Talks to the real API only.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": { "kiu-sim": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"simulator is exercised by apps/api e2e (simulator.e2e.ts)\"",
+    "sim": "node dist/cli.js"
+  },
+  "dependencies": { "@kiu/security": "workspace:*", "@kiu/vcard": "workspace:*" },
+  "devDependencies": { "@types/node": "^22.15.0", "typescript": "~5.8.3" }
+}

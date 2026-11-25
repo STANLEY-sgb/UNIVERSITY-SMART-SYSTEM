@@ -1,0 +1,9 @@
+{
+  "name": "KIU-USCAS Reader (prototype)",
+  "short_name": "KIU Reader",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFD21C",
+  "theme_color": "#FFD21C",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

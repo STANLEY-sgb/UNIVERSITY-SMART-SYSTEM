@@ -1,0 +1,17 @@
+sequenceDiagram
+  autonumber
+  participant R as Reader (IndexedDB)
+  participant A as Access API
+  Note over R,A: Online: periodic cache sync
+  R->>A: GET /readers/:id/allowlist
+  A-->>R: signed manifest {version, validUntil, revocationVersion, allow/deny, public keys}
+  Note over R: Connectivity lost / no reply within ~800 ms
+  R->>R: verify credential signature locally (Ed25519)
+  R->>R: manifest signature + validUntil + revocation list
+  R->>R: service offline policy (GATE: CACHED_ALLOW; EXAM, CAFETERIA: DENY_ALL)
+  R->>R: decide, queue signed idempotent log
+  Note over R: Limitation: revocations issued after last sync are unknown
+  Note over R,A: Connectivity restored
+  R->>A: POST /readers/:id/logs (batch, idempotency key)
+  A->>A: dedupe, reconcile conflicts, flag stale-cache grants
+  A-->>R: ack + new cache version

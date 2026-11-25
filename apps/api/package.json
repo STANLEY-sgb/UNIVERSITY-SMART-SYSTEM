@@ -1,0 +1,52 @@
+{
+  "name": "@kiu/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "seed": "node dist/seed/run.js",
+    "seed:live": "node dist/seed/bootstrap.js",
+    "test": "node ../../infrastructure/scripts/with-db.mjs jest --runInBand",
+    "test:unit": "jest --selectProjects unit"
+  },
+  "dependencies": {
+    "@kiu/rules-engine": "workspace:*",
+    "@kiu/security": "workspace:*",
+    "@kiu/shared": "workspace:*",
+    "@kiu/vcard": "workspace:*",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/swagger": "^11.2.0",
+    "@nestjs/throttler": "^6.4.0",
+    "@prisma/client": "6.19.3",
+    "argon2": "^0.43.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "cookie-parser": "^1.4.7",
+    "helmet": "^8.1.0",
+    "otplib": "12.0.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^3.25.0",
+    "@kiu/offline-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@kiu/simulator": "workspace:*",
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/testing": "^11.1.0",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.15.0",
+    "@types/supertest": "^6.0.3",
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1",
+    "ts-jest": "^29.3.4",
+    "typescript": "~5.8.3"
+  }
+}

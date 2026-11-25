@@ -1,0 +1,58 @@
+# One host per app, each serving its own static files AND forwarding /api to the API, so every app is same-origin with
+# the API: no CORS, no cross-site cookies, and a script injected into one app cannot read another app's cookies.
+# Caddy obtains and renews TLS certificates automatically for the three public hostnames (DNS must point here first).
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+	# Server-sent events (live dashboard) must not be buffered.
+	handle /api/* {
+		reverse_proxy api:4000 {
+			flush_interval -1
+		}
+	}
+}
+
+# Fonts come from Google Fonts today (style-src / font-src below). Self-host them to stop leaking visitors' IPs to Google.
+{$ADMIN_HOST} {
+	import common
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	header Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$WALLET_HOST} {
+	import common
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	@sw path /sw.js
+	header @sw Cache-Control "no-cache"
+	handle {
+		root * /srv/wallet
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$READER_HOST} {
+	import common
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; worker-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	header Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+	@sw path /sw.js
+	header @sw Cache-Control "no-cache"
+	handle {
+		root * /srv/reader
+		try_files {path} /index.html
+		file_server
+	}
+}

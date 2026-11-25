@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd ../.. && pnpm install --frozen-lockfile && pnpm db:generate && pnpm turbo run build --filter=@kiu/api",
+  "installCommand": "echo 'install happens in buildCommand (needs the monorepo root)'",
+  "functions": {
+    "api/[...path].js": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  }
+}

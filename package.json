@@ -1,0 +1,51 @@
+{
+  "name": "kiu-uscas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KIU Unified Smart Card Access System (prototype). All seeded data is fictional.",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=20.18"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:dev": "node infrastructure/scripts/dev-db.mjs",
+    "db:generate": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "pnpm --filter @kiu/api run seed",
+    "dev:api": "pnpm --filter @kiu/api run start:dev",
+    "demo": "node infrastructure/scripts/demo.mjs",
+    "live": "node infrastructure/scripts/live.mjs",
+    "bench": "node e2e/bench.mjs",
+    "verify:prod": "node deploy/verify-prod.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.49.0",
+    "@prisma/client": "6.19.3",
+    "embedded-postgres": "18.1.0-beta.16",
+    "otplib": "12.0.1",
+    "prisma": "6.19.3",
+    "turbo": "^2.5.0",
+    "typescript": "~5.8.3"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@embedded-postgres/windows-x64",
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "electron",
+      "esbuild",
+      "prisma",
+      "turbo"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+node_modules
+.git
+.demo-data
+.dev-db
+backups
+e2e/.results
+e2e/test-results
+.env
+.env.*
+!deploy/.env.production.example
+**/dist
+**/.turbo

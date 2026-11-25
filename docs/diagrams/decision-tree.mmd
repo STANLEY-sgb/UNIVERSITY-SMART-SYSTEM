@@ -1,0 +1,18 @@
+flowchart TD
+  start([Credential presented]) --> q1{Reader active and<br/>bound to this service/venue?}
+  q1 -- no --> d1[/DENY READER_REVOKED or READER_SERVICE_MISMATCH/]
+  q1 -- yes --> q2{HMAC, timestamp<br/>and nonce valid?}
+  q2 -- no --> d2[/DENY BAD_HMAC, STALE_TIMESTAMP or NONCE_REPLAY/]
+  q2 -- yes --> q3{Credential authentic<br/>and unexpired?}
+  q3 -- no --> d3[/DENY CREDENTIAL_INVALID or CREDENTIAL_EXPIRED<br/>+ security alert if cloned/]
+  q3 -- yes --> q4{Card ACTIVE?<br/>or valid face assertion}
+  q4 -- no --> d4[/DENY CARD_BLOCKED, CARD_LOST or CARD_EXPIRED<br/>+ alert if LOST reused/]
+  q4 -- yes --> q5{Student account ACTIVE?}
+  q5 -- no --> d5[/DENY STUDENT_SUSPENDED/]
+  q5 -- yes --> q6{Published rule exists<br/>and all facts known?}
+  q6 -- no --> d6[/DENY RULE_MISSING or FACT_UNKNOWN - fail closed/]
+  q6 -- yes --> q7{Rule conditions met<br/>finance, registration, enrolment, venue, time?}
+  q7 -- no --> d7[/DENY first unmet criterion's reason/]
+  q7 -- yes --> q8{Anti-passback / one meal /<br/>duplicate attendance ok?}
+  q8 -- no --> d8[/DENY ANTI_PASSBACK, MEAL_ALREADY_CLAIMED, DUPLICATE_ATTENDANCE/]
+  q8 -- yes --> g[/GRANT - act, record, audit/]

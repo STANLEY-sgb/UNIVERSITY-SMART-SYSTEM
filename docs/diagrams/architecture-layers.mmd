@@ -1,0 +1,46 @@
+%% Five-layer architecture with two identity paths converging on one student identity.
+flowchart TB
+  subgraph L1["Layer 1 - Credentials"]
+    CARD["Virtual AES card<br/>(simulator tap)"]
+    QR["Rotating QR<br/>KIU1.payload.Ed25519 sig, 30 s"]
+    FACE["Live face (opt-in)<br/>liveness + capture"]
+  end
+  subgraph L2["Layer 2 - Registered readers"]
+    RDR["Reader PWA<br/>gate / library / exam / hostel / cafeteria / lab"]
+    OFF[("IndexedDB<br/>signed cache + queued logs")]
+  end
+  subgraph L3["Layer 3 - Secure transport"]
+    TLS["TLS 1.2+ / HMAC-SHA256 signed requests<br/>nonce + timestamp"]
+    MQTT["MQTT (Mosquitto)<br/>per-reader ACLs"]
+    WS["WebSocket live events"]
+  end
+  subgraph L4["Layer 4 - Central platform (NestJS)"]
+    API["POST /access/verify"]
+    CRED["Credential verifier<br/>AES-CMAC / Ed25519 / identity assertion"]
+    RULES["Rules engine<br/>versioned JSON, no eval"]
+    DB[("PostgreSQL<br/>audit hash-chain")]
+    REDIS[("Redis cache / nonces")]
+    BIO["BiometricIdentityService<br/>separate deployable<br/>encrypted templates"]
+  end
+  subgraph L5["Layer 5 - University data feeds"]
+    FIN["Finance"]:::src
+    REG["Registry"]:::src
+    LIB["Library"]:::src
+    HOS["Hostel"]:::src
+  end
+  CARD --> RDR
+  QR --> RDR
+  FACE --> RDR
+  RDR <--> OFF
+  RDR -->|request| TLS --> API
+  API -->|decision| TLS
+  API --> CRED --> RULES
+  RDR -.face capture.-> BIO
+  BIO -.signed short-lived assertion.-> API
+  RULES <--> DB
+  RULES <--> REDIS
+  API --> WS
+  API <--> MQTT
+  FIN & REG & LIB & HOS -->|"CSV / mock API / webhook"| DB
+  DB -->|"cache invalidation + reader cache publish"| MQTT
+  classDef src fill:#FFD21C,stroke:#111,color:#111;

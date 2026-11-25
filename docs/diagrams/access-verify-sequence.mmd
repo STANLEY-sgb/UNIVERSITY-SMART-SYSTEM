@@ -1,0 +1,28 @@
+%% Online access decision. Offline path is in offline-sequence.mmd.
+sequenceDiagram
+  autonumber
+  participant S as Student (card / QR / face)
+  participant R as Reader app
+  participant A as Access API
+  participant C as Credential verifier
+  participant B as Biometric service
+  participant E as Rules engine
+  participant D as PostgreSQL / Redis
+  S->>R: present credential (tap, QR or face)
+  alt Face route (opt-in)
+    R->>B: capture session + live frames
+    B-->>R: signed identity assertion (short-lived, bound to reader+nonce)
+  end
+  R->>A: POST /api/v1/access/verify (HMAC, ts, nonce)
+  A->>A: reader active? service/venue binding? HMAC + timestamp ok?
+  A->>D: nonce unused? (replay protection)
+  A->>C: verify AES session proof / Ed25519 QR / assertion
+  C-->>A: student id + credential kind (never a client-supplied id)
+  A->>D: card lifecycle, student account status
+  A->>D: load facts + published rule version + context (venue, exam, time)
+  A->>E: evaluate(rule, facts, context)
+  E-->>A: first unmet criterion -> precise reason, or GRANT
+  A->>D: anti-passback, one-meal, duplicate attendance (transactional)
+  A->>D: write access_log, attendance, usage
+  A-->>R: decision, reason_code, message, minimal student info, log id, ms
+  A-)R: WebSocket event to authorised dashboards

@@ -1,0 +1,1165 @@
+// KIU-USCAS data model. Source of truth for docs/DATABASE_DESIGN.md.
+// DB columns are snake_case (@map); advanced constraints (partial unique indexes,
+// append-only audit trigger, CHECKs) live in migrations/*/migration.sql.
+// All data seeded into this schema is FICTIONAL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Runtime queries go through this. On Supabase, point it at the pooled (PgBouncer, port 6543)
+  // connection string with ?pgbouncer=true — see docs/DEPLOY_VERCEL_SUPABASE.md.
+  url       = env("DATABASE_URL")
+  // Migrations (`prisma migrate deploy`) need a direct, non-pooled connection (port 5432).
+  // PgBouncer's transaction mode doesn't support the prepared statements migrations issue.
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum UserType {
+  STAFF
+  STUDENT
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  LOCKED
+  DISABLED
+}
+
+enum StudentAccountStatus {
+  ACTIVE
+  SUSPENDED
+  WITHDRAWN
+  GRADUATED
+}
+
+enum CardStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  LOST
+  EXPIRED
+}
+
+enum CredentialKind {
+  AES_CARD_KEY
+  ED25519_QR
+}
+
+enum CredentialStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum AuthMethod {
+  VIRTUAL_TAP
+  QR
+  FACE
+  NFC_FUTURE
+  MANUAL_OVERRIDE
+}
+
+enum Decision {
+  GRANT
+  DENY
+}
+
+enum Direction {
+  ENTRY
+  EXIT
+  NONE
+}
+
+enum ReaderStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+  REVOKED
+}
+
+enum RuleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum OfflinePolicy {
+  DENY_ALL
+  CACHED_ALLOW
+}
+
+enum ExamAttendanceStatus {
+  PRESENT
+  REFUSED
+  OVERRIDDEN
+}
+
+enum SyncKind {
+  FINANCE
+  REGISTRY
+  LIBRARY
+  HOSTEL
+  OFFLINE_LOGS
+  CACHE_PUBLISH
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum AlertSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum BiometricStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  DELETED
+}
+
+enum ConsentStatus {
+  GRANTED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum BiometricOutcome {
+  MATCH
+  NO_MATCH
+  AMBIGUOUS
+  LIVENESS_FAILED
+  QUALITY_FAILED
+  NOT_ENROLLED
+  CONSENT_REVOKED
+  ERROR
+}
+
+enum LoanStatus {
+  ACTIVE
+  RETURNED
+  OVERDUE
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+}
+
+// ───────────────── Staff / student web accounts + RBAC ─────────────────
+
+model User {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userType         UserType      @map("user_type")
+  email            String        @unique
+  displayName      String        @map("display_name")
+  passwordHash     String        @map("password_hash")
+  status           AccountStatus @default(ACTIVE)
+  failedLogins     Int           @default(0) @map("failed_logins")
+  lockedUntil      DateTime?     @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt      DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  mfaEnabled       Boolean       @default(false) @map("mfa_enabled")
+  mfaSecretEnc     String?       @map("mfa_secret_enc")
+  mfaRecoveryHashes String[]     @default([]) @map("mfa_recovery_hashes")
+  mustChangePassword Boolean     @default(false) @map("must_change_password")
+  studentId        String?       @unique @map("student_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student        Student?             @relation(fields: [studentId], references: [id])
+  roles          UserRole[]
+  sessions       Session[]
+  resetTokens    PasswordResetToken[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String  @unique
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  assignedBy String?  @map("assigned_by") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// Refresh-token sessions. Only a SHA-256 of the token is stored. Rotation links
+// a session to the one it replaced (reuse of a rotated token revokes the family).
+model Session {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  familyId    String    @map("family_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash")
+  userAgent   String?   @map("user_agent")
+  ip          String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  rotatedAt   DateTime? @map("rotated_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokeReason String?  @map("revoke_reason")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ───────────────────────── Academic structure ─────────────────────────
+
+model Department {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code     String @unique
+  name     String
+  faculty  String
+
+  programmes  Programme[]
+  courseUnits CourseUnit[]
+
+  @@map("departments")
+}
+
+model Programme {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String @unique
+  name         String
+  departmentId String @map("department_id") @db.Uuid
+  durationYears Int   @default(3) @map("duration_years")
+
+  department Department @relation(fields: [departmentId], references: [id])
+  students   Student[]
+
+  @@map("programmes")
+}
+
+model AcademicSession {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique // e.g. 2026/2027
+  startsOn  DateTime @map("starts_on") @db.Date
+  endsOn    DateTime @map("ends_on") @db.Date
+  isCurrent Boolean  @default(false) @map("is_current")
+
+  semesters Semester[]
+
+  @@map("academic_sessions")
+}
+
+model Semester {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  number     Int
+  startsOn   DateTime @map("starts_on") @db.Date
+  endsOn     DateTime @map("ends_on") @db.Date
+  isCurrent  Boolean  @default(false) @map("is_current")
+
+  session       AcademicSession @relation(fields: [sessionId], references: [id])
+  enrolments    Enrolment[]
+  examSessions  ExamSession[]
+  statuses      StudentStatus[]
+
+  @@unique([sessionId, number])
+  @@map("semesters")
+}
+
+model Student {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  regNo         String               @unique @map("reg_no")
+  fullName      String               @map("full_name")
+  email         String?
+  phone         String?
+  photoRef      String?              @map("photo_ref")
+  photoSha256   String?              @map("photo_sha256")
+  programmeId   String               @map("programme_id") @db.Uuid
+  yearOfStudy   Int                  @map("year_of_study")
+  accountStatus StudentAccountStatus @default(ACTIVE) @map("account_status")
+  isFictional   Boolean              @default(true) @map("is_fictional")
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?            @map("deleted_at") @db.Timestamptz(6)
+
+  programme       Programme            @relation(fields: [programmeId], references: [id])
+  user            User?
+  statuses        StudentStatus[]
+  cards           Card[]
+  enrolments      Enrolment[]
+  accessLogs      AccessLog[]
+  examAttendance  ExamAttendance[]
+  lectureAttendance LectureAttendance[]
+  libraryLoans    LibraryLoan[]
+  hostelAllocations HostelAllocation[]
+  mealUsage       MealUsage[]
+  memberships     ServiceMembership[]
+  clearances      GraduationClearance[]
+  presence        PresenceState[]
+  notifications   Notification[]
+  biometricEnrollments BiometricEnrollment[]
+  biometricAttempts    BiometricAttempt[]
+  biometricExemption   BiometricExemption?
+  alerts          SecurityAlert[]
+  overrides       AccessOverride[]
+
+  @@index([programmeId])
+  @@index([fullName])
+  @@map("students")
+}
+
+// Eligibility facts per student per semester (rules-engine inputs).
+// Policy thresholds are NOT stored here; they live in rules / settings.
+model StudentStatus {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId         String   @map("student_id") @db.Uuid
+  semesterId        String   @map("semester_id") @db.Uuid
+  semesterRegistered Boolean  @default(false) @map("semester_registered")
+  feesPaidPercent   Decimal  @default(0) @map("fees_paid_percent") @db.Decimal(5, 2)
+  examCleared       Boolean  @default(false) @map("exam_cleared")
+  libraryOverdueItems Int    @default(0) @map("library_overdue_items")
+  libraryFinesUgx   Int      @default(0) @map("library_fines_ugx")
+  hostelFeesPaid    Boolean  @default(false) @map("hostel_fees_paid")
+  mealPlanActive    Boolean  @default(false) @map("meal_plan_active")
+  factsVersion      Int      @default(1) @map("facts_version")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?  @map("updated_by") @db.Uuid
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  semester Semester @relation(fields: [semesterId], references: [id])
+
+  @@unique([studentId, semesterId])
+  @@map("student_status")
+}
+
+model CourseUnit {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String @unique
+  title        String
+  departmentId String @map("department_id") @db.Uuid
+  creditUnits  Int    @default(3) @map("credit_units")
+
+  department  Department        @relation(fields: [departmentId], references: [id])
+  enrolments  Enrolment[]
+  examSessions ExamSession[]
+  lectures    LectureSchedule[]
+
+  @@map("course_units")
+}
+
+model Enrolment {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId    String   @map("student_id") @db.Uuid
+  courseUnitId String   @map("course_unit_id") @db.Uuid
+  semesterId   String   @map("semester_id") @db.Uuid
+  enrolledAt   DateTime @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseUnit CourseUnit @relation(fields: [courseUnitId], references: [id])
+  semester   Semester   @relation(fields: [semesterId], references: [id])
+
+  @@unique([studentId, courseUnitId, semesterId])
+  @@index([courseUnitId, semesterId])
+  @@map("enrolments")
+}
+
+model Venue {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String  @unique
+  name      String
+  kind      String // GATE | LIBRARY | EXAM_HALL | LECTURE_ROOM | HOSTEL | CAFETERIA | LAB | HEALTH | OTHER
+  capacity  Int?
+  opensAt   String? @map("opens_at") // HH:MM local, optional
+  closesAt  String? @map("closes_at")
+
+  readers      Reader[]
+  examSessions ExamSession[]
+  lectures     LectureSchedule[]
+  hostels      Hostel[]
+  accessLogs   AccessLog[]
+
+  @@map("venues")
+}
+
+model ExamSession {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courseUnitId String   @map("course_unit_id") @db.Uuid
+  semesterId   String   @map("semester_id") @db.Uuid
+  venueId      String   @map("venue_id") @db.Uuid
+  startsAt     DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt       DateTime @map("ends_at") @db.Timestamptz(6)
+  entryOpensAt DateTime @map("entry_opens_at") @db.Timestamptz(6)
+  entryClosesAt DateTime @map("entry_closes_at") @db.Timestamptz(6)
+
+  courseUnit CourseUnit @relation(fields: [courseUnitId], references: [id])
+  semester   Semester   @relation(fields: [semesterId], references: [id])
+  venue      Venue      @relation(fields: [venueId], references: [id])
+  attendance ExamAttendance[]
+  seats      ExamSeat[]
+
+  @@index([venueId, startsAt])
+  @@map("exam_sessions")
+}
+
+model ExamSeat {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  examSessionId String  @map("exam_session_id") @db.Uuid
+  studentId     String  @map("student_id") @db.Uuid
+  seatLabel     String  @map("seat_label")
+
+  examSession ExamSession @relation(fields: [examSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([examSessionId, studentId])
+  @@unique([examSessionId, seatLabel])
+  @@map("exam_seats")
+}
+
+model LectureSchedule {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courseUnitId String   @map("course_unit_id") @db.Uuid
+  venueId      String   @map("venue_id") @db.Uuid
+  dayOfWeek    Int      @map("day_of_week") // 0=Sun..6=Sat
+  startsAt     String   @map("starts_at") // HH:MM
+  endsAt       String   @map("ends_at")
+
+  courseUnit CourseUnit @relation(fields: [courseUnitId], references: [id])
+  venue      Venue      @relation(fields: [venueId], references: [id])
+  attendance LectureAttendance[]
+
+  @@map("lecture_schedules")
+}
+
+// ───────────────────────── Smart cards ─────────────────────────
+
+model Card {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardNumber     String     @unique @map("card_number")
+  uidHex         String     @unique @map("uid_hex") // random 7-byte UID, 14 hex chars
+  aidHex         String     @default("4B4955") @map("aid_hex")
+  studentId      String     @map("student_id") @db.Uuid
+  status         CardStatus @default(PENDING)
+  issuedAt       DateTime?  @map("issued_at") @db.Timestamptz(6)
+  expiresAt      DateTime   @map("expires_at") @db.Timestamptz(6)
+  txCounter      BigInt     @default(0) @map("tx_counter")
+  regNoHash      String     @map("reg_no_hash")
+  photoHash      String?    @map("photo_hash")
+  issuedBy       String?    @map("issued_by") @db.Uuid
+  replacesCardId String?    @unique @map("replaces_card_id") @db.Uuid
+  activationHash String?    @unique @map("activation_hash")          // SHA-256 of the one-time wallet activation code
+  activationExpiresAt DateTime? @map("activation_expires_at") @db.Timestamptz(6)
+  activatedAt    DateTime?  @map("activated_at") @db.Timestamptz(6)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student     Student          @relation(fields: [studentId], references: [id])
+  replaces    Card?            @relation("CardReplacement", fields: [replacesCardId], references: [id])
+  replacedBy  Card?            @relation("CardReplacement")
+  credentials CardCredential[]
+  events      CardEvent[]
+  revocations CardRevocation[]
+  accessLogs  AccessLog[]
+
+  // Partial unique index "one ACTIVE card per student" is in the SQL migration.
+  @@index([studentId, status])
+  @@map("cards")
+}
+
+// Secret material is stored encrypted (AES-256-GCM envelope; key from KMS/env).
+model CardCredential {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId          String           @map("card_id") @db.Uuid
+  kind            CredentialKind
+  status          CredentialStatus @default(ACTIVE)
+  publicKeyHex    String?          @map("public_key_hex") // Ed25519 public key
+  secretEnc       String?          @map("secret_enc")    // encrypted diversified AES key (server-side sim only)
+  keyVersion      Int              @default(1) @map("key_version")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt       DateTime?        @map("revoked_at") @db.Timestamptz(6)
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, kind, status])
+  @@map("card_credentials")
+}
+
+model CardEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  eventType String   @map("event_type") // ISSUED, ACTIVATED, BLOCKED, UNBLOCKED, LOST, EXPIRED, REPLACED
+  actorId   String?  @map("actor_id") @db.Uuid
+  reason    String?
+  at        DateTime @default(now()) @db.Timestamptz(6)
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, at])
+  @@map("card_events")
+}
+
+model CardRevocation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  version   BigInt   @default(autoincrement()) // monotonic revocation version for reader deny-lists
+  reason    String
+  revokedAt DateTime @default(now()) @map("revoked_at") @db.Timestamptz(6)
+  revokedBy String?  @map("revoked_by") @db.Uuid
+
+  card Card @relation(fields: [cardId], references: [id])
+
+  @@index([version])
+  @@map("card_revocations")
+}
+
+// Short-lived state for the three-pass AES tap protocol. No key material is stored: Kc is re-derived from the master key.
+model TapSession {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId  String   @map("reader_id") @db.Uuid
+  cardId    String?  @map("card_id") @db.Uuid
+  uidHex    String   @map("uid_hex")
+  rndR      String   @map("rnd_r")
+  rndC      String?  @map("rnd_c")
+  state     String   @default("BEGUN") // BEGUN | AUTHENTICATED | USED | FAILED
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("tap_sessions")
+}
+
+// Replay protection for QR tokens and signed reader requests.
+model CredentialNonce {
+  nonce     String   @id
+  scope     String   // QR | READER_REQUEST | FACE_CAPTURE
+  seenAt    DateTime @default(now()) @map("seen_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("credential_nonces")
+}
+
+// ───────────────────── Biometrics (Phase 6; schema only now) ─────────────────────
+
+model BiometricModelVersion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  version     String
+  isMock      Boolean  @default(true) @map("is_mock")
+  evaluation  Json?    // documented accuracy/demographic evidence, FMR/FNMR
+  approvedAt  DateTime? @map("approved_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  templates BiometricTemplate[]
+
+  @@unique([name, version])
+  @@map("biometric_model_versions")
+}
+
+model BiometricEnrollment {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId     String          @map("student_id") @db.Uuid
+  status        BiometricStatus @default(PENDING)
+  enrolledBy    String?         @map("enrolled_by") @db.Uuid
+  enrolledAt    DateTime?       @map("enrolled_at") @db.Timestamptz(6)
+  lastVerifiedAt DateTime?      @map("last_verified_at") @db.Timestamptz(6)
+  revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz(6)
+  qualityMeta   Json?           @map("quality_meta")
+  auditRef      String?         @map("audit_ref")
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  student     Student               @relation(fields: [studentId], references: [id])
+  templates   BiometricTemplate[]
+  consents    BiometricConsent[]
+  revocations BiometricRevocation[]
+
+  @@index([studentId, status])
+  @@map("biometric_enrollments")
+}
+
+// Stored apart from student profile data. Only an encrypted reference/blob; never exposed via APIs.
+model BiometricTemplate {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  enrollmentId       String   @map("enrollment_id") @db.Uuid
+  modelVersionId     String   @map("model_version_id") @db.Uuid
+  encryptedTemplateRef String @map("encrypted_template_ref")
+  templateVersion    Int      @default(1) @map("template_version")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  enrollment   BiometricEnrollment  @relation(fields: [enrollmentId], references: [id])
+  modelVersion BiometricModelVersion @relation(fields: [modelVersionId], references: [id])
+
+  @@map("biometric_templates")
+}
+
+model BiometricConsent {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  enrollmentId  String        @map("enrollment_id") @db.Uuid
+  status        ConsentStatus
+  noticeVersion String        @map("notice_version")
+  lawfulBasis   String        @map("lawful_basis")
+  recordedBy    String?       @map("recorded_by") @db.Uuid
+  at            DateTime      @default(now()) @db.Timestamptz(6)
+
+  enrollment BiometricEnrollment @relation(fields: [enrollmentId], references: [id])
+
+  @@index([enrollmentId, at])
+  @@map("biometric_consents")
+}
+
+model BiometricAttempt {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId    String?          @map("reader_id") @db.Uuid
+  studentId   String?          @map("student_id") @db.Uuid // only set on MATCH
+  mode        String           // ONE_TO_ONE | ONE_TO_MANY
+  outcome     BiometricOutcome
+  livenessOk  Boolean?         @map("liveness_ok")
+  latencyMs   Int?             @map("latency_ms")
+  at          DateTime         @default(now()) @db.Timestamptz(6)
+
+  student Student? @relation(fields: [studentId], references: [id])
+
+  @@index([at])
+  @@map("biometric_attempts")
+}
+
+model BiometricPolicy {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique // e.g. ONE_TO_MANY_ENABLED, MATCH_THRESHOLD, OFFLINE_FACE_ENABLED
+  value       Json
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("biometric_policies")
+}
+
+/// A student who is excused from the compulsory face enrolment. Card and QR remain their credentials.
+model BiometricExemption {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId String    @unique @map("student_id") @db.Uuid
+  reason    String
+  grantedBy String?   @map("granted_by") @db.Uuid
+  grantedAt DateTime  @default(now()) @map("granted_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@map("biometric_exemptions")
+}
+
+model BiometricRevocation {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  enrollmentId String   @map("enrollment_id") @db.Uuid
+  reason       String
+  initiatedBy  String   @map("initiated_by") // STUDENT | ADMIN | SYSTEM
+  actorId      String?  @map("actor_id") @db.Uuid
+  at           DateTime @default(now()) @db.Timestamptz(6)
+
+  enrollment BiometricEnrollment @relation(fields: [enrollmentId], references: [id])
+
+  @@map("biometric_revocations")
+}
+
+model BiometricDeviceAuthorization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId  String   @unique @map("reader_id") @db.Uuid
+  approvedBy String? @map("approved_by") @db.Uuid
+  approvedAt DateTime @default(now()) @map("approved_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  reader Reader @relation(fields: [readerId], references: [id])
+
+  @@map("biometric_device_authorizations")
+}
+
+// ───────────────────── Services, rules, readers ─────────────────────
+
+model Service {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String        @unique // GATE, LIBRARY_ENTRY, LIBRARY_BORROW, EXAM, LECTURE, HOSTEL, CAFETERIA, LAB, HEALTH, ...
+  name          String
+  description   String?
+  active        Boolean       @default(true)
+  offlinePolicy OfflinePolicy @default(DENY_ALL) @map("offline_policy")
+  requiresDirection Boolean   @default(false) @map("requires_direction")
+  sensitivity   String        @default("NORMAL") // HEALTH => minimal reader data
+
+  rules     AccessRule[]
+  readers   Reader[]
+  accessLogs AccessLog[]
+  memberships ServiceMembership[]
+  mealSittings MealSitting[]
+
+  @@map("services")
+}
+
+model AccessRule {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId        String  @unique @map("service_id") @db.Uuid
+  publishedVersionId String? @unique @map("published_version_id") @db.Uuid
+
+  service  Service           @relation(fields: [serviceId], references: [id])
+  versions AccessRuleVersion[] @relation("RuleVersions")
+  published AccessRuleVersion? @relation("PublishedVersion", fields: [publishedVersionId], references: [id])
+
+  @@map("access_rules")
+}
+
+model AccessRuleVersion {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId        String     @map("rule_id") @db.Uuid
+  version       Int
+  status        RuleStatus @default(DRAFT)
+  definition    Json       // validated against rules-engine schema; never executed as code
+  effectiveFrom DateTime?  @map("effective_from") @db.Timestamptz(6)
+  createdBy     String?    @map("created_by") @db.Uuid
+  publishedBy   String?    @map("published_by") @db.Uuid
+  publishedAt   DateTime?  @map("published_at") @db.Timestamptz(6)
+  changeNote    String?    @map("change_note")
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rule      AccessRule  @relation("RuleVersions", fields: [ruleId], references: [id])
+  publishedFor AccessRule? @relation("PublishedVersion")
+  accessLogs AccessLog[]
+
+  @@unique([ruleId, version])
+  @@map("access_rule_versions")
+}
+
+model Reader {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String       @unique // reader_id used in MQTT topics, e.g. RDR-GATE-01
+  name            String
+  serviceId       String       @map("service_id") @db.Uuid
+  venueId         String       @map("venue_id") @db.Uuid
+  status          ReaderStatus @default(PENDING)
+  supportsFace    Boolean      @default(false) @map("supports_face")
+  configVersion   Int          @default(1) @map("config_version")
+  lastHeartbeatAt DateTime?    @map("last_heartbeat_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  service     Service              @relation(fields: [serviceId], references: [id])
+  venue       Venue                @relation(fields: [venueId], references: [id])
+  credentials ReaderCredential[]
+  heartbeats  ReaderHeartbeat[]
+  cacheVersions ReaderCacheVersion[]
+  logBatches  OfflineLogBatch[]
+  accessLogs  AccessLog[]
+  faceAuth    BiometricDeviceAuthorization?
+  alerts      SecurityAlert[]
+
+  @@index([serviceId, venueId])
+  @@map("readers")
+}
+
+// HMAC secret is shown once at provisioning; stored encrypted. Rotation = new row, old one revoked.
+model ReaderCredential {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId     String    @map("reader_id") @db.Uuid
+  keyId        String    @unique @map("key_id")
+  secretEnc    String    @map("secret_enc")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  reader Reader @relation(fields: [readerId], references: [id], onDelete: Cascade)
+
+  @@index([readerId])
+  @@map("reader_credentials")
+}
+
+model ReaderHeartbeat {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId  String   @map("reader_id") @db.Uuid
+  at        DateTime @default(now()) @db.Timestamptz(6)
+  online    Boolean  @default(true)
+  queuedLogs Int     @default(0) @map("queued_logs")
+  cacheVersion BigInt? @map("cache_version")
+
+  reader Reader @relation(fields: [readerId], references: [id], onDelete: Cascade)
+
+  @@index([readerId, at])
+  @@map("reader_heartbeats")
+}
+
+model ReaderCacheVersion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId    String   @map("reader_id") @db.Uuid
+  version     BigInt
+  manifestSig String   @map("manifest_sig")
+  validUntil  DateTime @map("valid_until") @db.Timestamptz(6)
+  revocationVersion BigInt @map("revocation_version")
+  publishedAt DateTime @default(now()) @map("published_at") @db.Timestamptz(6)
+
+  reader Reader @relation(fields: [readerId], references: [id], onDelete: Cascade)
+
+  @@unique([readerId, version])
+  @@map("reader_cache_versions")
+}
+
+model OfflineLogBatch {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  readerId       String   @map("reader_id") @db.Uuid
+  idempotencyKey String   @unique @map("idempotency_key")
+  entryCount     Int      @map("entry_count")
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  reconciledAt   DateTime? @map("reconciled_at") @db.Timestamptz(6)
+  conflicts      Int      @default(0)
+
+  reader Reader @relation(fields: [readerId], references: [id])
+
+  @@map("offline_log_batches")
+}
+
+// ───────────────────── Access decisions & events ─────────────────────
+
+model AccessLog {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  occurredAt      DateTime   @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  readerId        String?    @map("reader_id") @db.Uuid
+  serviceId       String?    @map("service_id") @db.Uuid
+  venueId         String?    @map("venue_id") @db.Uuid
+  studentId       String?    @map("student_id") @db.Uuid
+  cardId          String?    @map("card_id") @db.Uuid
+  authMethod      AuthMethod @map("auth_method")
+  direction       Direction  @default(NONE)
+  decision        Decision
+  reasonCode      String     @map("reason_code")
+  message         String
+  ruleVersionId   String?    @map("rule_version_id") @db.Uuid
+  processingMs    Int?       @map("processing_ms")
+  requestNonce    String?    @map("request_nonce")
+  idempotencyKey  String?    @unique @map("idempotency_key")
+  offline         Boolean    @default(false)
+  overrideId      String?    @map("override_id") @db.Uuid
+  context         Json?
+
+  reader      Reader?            @relation(fields: [readerId], references: [id])
+  service     Service?           @relation(fields: [serviceId], references: [id])
+  venue       Venue?             @relation(fields: [venueId], references: [id])
+  student     Student?           @relation(fields: [studentId], references: [id])
+  card        Card?              @relation(fields: [cardId], references: [id])
+  ruleVersion AccessRuleVersion? @relation(fields: [ruleVersionId], references: [id])
+
+  @@index([readerId, occurredAt])
+  @@index([cardId, occurredAt])
+  @@index([studentId, occurredAt])
+  @@index([occurredAt])
+  @@map("access_logs")
+}
+
+model AccessOverride {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String   @map("student_id") @db.Uuid
+  serviceId  String   @map("service_id") @db.Uuid
+  readerId   String?  @map("reader_id") @db.Uuid
+  actorId    String   @map("actor_id") @db.Uuid
+  reason     String
+  originalReasonCode String? @map("original_reason_code")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, createdAt])
+  @@map("access_overrides")
+}
+
+model SecurityAlert {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind       String        // LOST_CARD_PRESENTED, REPLAY, BAD_SIGNATURE, REVOKED_READER, ...
+  severity   AlertSeverity
+  readerId   String?       @map("reader_id") @db.Uuid
+  studentId  String?       @map("student_id") @db.Uuid
+  cardId     String?       @map("card_id") @db.Uuid
+  detail     Json?
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  ackedAt    DateTime?     @map("acked_at") @db.Timestamptz(6)
+  ackedBy    String?       @map("acked_by") @db.Uuid
+
+  reader  Reader?  @relation(fields: [readerId], references: [id])
+  student Student? @relation(fields: [studentId], references: [id])
+
+  @@index([createdAt])
+  @@map("security_alerts")
+}
+
+// Anti-passback: last gate direction per student per zone (service).
+model PresenceState {
+  studentId  String    @map("student_id") @db.Uuid
+  zone       String
+  direction  Direction
+  at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, zone])
+  @@map("presence_state")
+}
+
+// ───────────────────── Service transaction records ─────────────────────
+
+model ExamAttendance {
+  id            String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  examSessionId String               @map("exam_session_id") @db.Uuid
+  studentId     String               @map("student_id") @db.Uuid
+  status        ExamAttendanceStatus @default(PRESENT)
+  markedAt      DateTime             @default(now()) @map("marked_at") @db.Timestamptz(6)
+  accessLogId   String?              @map("access_log_id") @db.Uuid
+
+  examSession ExamSession @relation(fields: [examSessionId], references: [id])
+  student     Student     @relation(fields: [studentId], references: [id])
+
+  @@unique([examSessionId, studentId]) // no duplicate attendance, regardless of QR/face route
+  @@map("exam_attendance")
+}
+
+model LectureAttendance {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scheduleId  String   @map("schedule_id") @db.Uuid
+  studentId   String   @map("student_id") @db.Uuid
+  heldOn      DateTime @map("held_on") @db.Date
+  markedAt    DateTime @default(now()) @map("marked_at") @db.Timestamptz(6)
+
+  schedule LectureSchedule @relation(fields: [scheduleId], references: [id])
+  student  Student         @relation(fields: [studentId], references: [id])
+
+  @@unique([scheduleId, studentId, heldOn])
+  @@map("lecture_attendance")
+}
+
+model LibraryLoan {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String     @map("student_id") @db.Uuid
+  itemRef    String     @map("item_ref")
+  title      String
+  borrowedAt DateTime   @default(now()) @map("borrowed_at") @db.Timestamptz(6)
+  dueAt      DateTime   @map("due_at") @db.Timestamptz(6)
+  returnedAt DateTime?  @map("returned_at") @db.Timestamptz(6)
+  fineUgx    Int        @default(0) @map("fine_ugx")
+  status     LoanStatus @default(ACTIVE)
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, status])
+  @@map("library_loans")
+}
+
+model Hostel {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code    String @unique
+  name    String
+  venueId String @map("venue_id") @db.Uuid
+
+  venue       Venue              @relation(fields: [venueId], references: [id])
+  allocations HostelAllocation[]
+
+  @@map("hostels")
+}
+
+model HostelAllocation {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String    @map("student_id") @db.Uuid
+  hostelId   String    @map("hostel_id") @db.Uuid
+  roomNo     String?   @map("room_no")
+  semesterId String?   @map("semester_id") @db.Uuid
+  active     Boolean   @default(true)
+  allocatedAt DateTime @default(now()) @map("allocated_at") @db.Timestamptz(6)
+
+  student Student @relation(fields: [studentId], references: [id])
+  hostel  Hostel  @relation(fields: [hostelId], references: [id])
+
+  @@index([studentId, active])
+  @@map("hostel_allocations")
+}
+
+model MealSitting {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serviceId String   @map("service_id") @db.Uuid
+  mealType  MealType @map("meal_type")
+  startsAt  String   @map("starts_at") // HH:MM
+  endsAt    String   @map("ends_at")
+
+  service Service     @relation(fields: [serviceId], references: [id])
+  usage   MealUsage[]
+
+  @@unique([serviceId, mealType])
+  @@map("meal_sittings")
+}
+
+model MealUsage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String   @map("student_id") @db.Uuid
+  sittingId  String   @map("sitting_id") @db.Uuid
+  servedOn   DateTime @map("served_on") @db.Date
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  accessLogId String? @map("access_log_id") @db.Uuid
+
+  student Student     @relation(fields: [studentId], references: [id])
+  sitting MealSitting @relation(fields: [sittingId], references: [id])
+
+  @@unique([studentId, sittingId, servedOn]) // one meal per sitting, enforced by the database
+  @@map("meal_usage")
+}
+
+model ServiceMembership {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String    @map("student_id") @db.Uuid
+  serviceId  String    @map("service_id") @db.Uuid
+  kind       String    // MEMBERSHIP | TICKET | SUBSCRIPTION
+  validFrom  DateTime  @map("valid_from") @db.Timestamptz(6)
+  validUntil DateTime? @map("valid_until") @db.Timestamptz(6)
+  usesLeft   Int?      @map("uses_left")
+
+  student Student @relation(fields: [studentId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@index([studentId, serviceId])
+  @@map("service_memberships")
+}
+
+model GraduationClearance {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String    @map("student_id") @db.Uuid
+  department String    // FINANCE | LIBRARY | HOSTEL | REGISTRY | SPORTS ...
+  cleared    Boolean   @default(false)
+  clearedAt  DateTime? @map("cleared_at") @db.Timestamptz(6)
+  note       String?
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([studentId, department])
+  @@map("graduation_clearances")
+}
+
+// ───────────────────── Integrations, notifications, audit ─────────────────────
+
+model SyncJob {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind         SyncKind
+  status       SyncStatus @default(PENDING)
+  source       String     // CSV_UPLOAD | MOCK_API | WEBHOOK | SYSTEM
+  fileSha256   String?    @map("file_sha256")
+  idempotencyKey String?  @unique @map("idempotency_key")
+  rowsTotal    Int        @default(0) @map("rows_total")
+  rowsOk       Int        @default(0) @map("rows_ok")
+  rowsFailed   Int        @default(0) @map("rows_failed")
+  errorReport  Json?      @map("error_report")
+  startedBy    String?    @map("started_by") @db.Uuid
+  startedAt    DateTime   @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime?  @map("finished_at") @db.Timestamptz(6)
+
+  @@index([kind, startedAt])
+  @@map("sync_jobs")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  studentId String?   @map("student_id") @db.Uuid
+  kind      String
+  title     String
+  body      String
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  student Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+// Append-only, hash-chained. UPDATE/DELETE are blocked by a trigger (see migration).
+model AuditTrail {
+  seq         BigInt   @id @default(autoincrement())
+  id          String   @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  at          DateTime @default(now()) @db.Timestamptz(6)
+  actorId     String?  @map("actor_id") @db.Uuid
+  actorType   String   @default("USER") @map("actor_type") // USER | READER | SYSTEM
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?
+  after       Json?
+  reason      String?
+  requestMeta Json?    @map("request_meta")
+  prevHash    String   @map("prev_hash")
+  hash        String
+
+  @@index([entityType, entityId])
+  @@index([actorId, at])
+  @@map("audit_trail")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  note      String?
+  updatedBy String?  @map("updated_by") @db.Uuid
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}

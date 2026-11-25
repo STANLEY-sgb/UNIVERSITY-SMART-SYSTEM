@@ -1,0 +1,16 @@
+node_modules
+dist
+.turbo
+.demo-data
+.dev-db
+.dev-db.seeded
+backups
+.env
+.env.production
+.env.*.local
+.vercel
+coverage
+*.tsbuildinfo
+Thumbs.db
+.DS_Store
+e2e/.results

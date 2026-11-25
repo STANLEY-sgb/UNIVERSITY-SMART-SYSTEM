@@ -1,0 +1,24 @@
+{
+  "name": "@kiu/student-portal-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop wrapper for apps/student-portal. Loads the live wallet URL so existing cookie auth keeps working.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@kiu/desktop-shell": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.kiu.student-portal-desktop",
+    "productName": "KIU Wallet",
+    "files": ["main.js"],
+    "win": { "target": "nsis" }
+  }
+}

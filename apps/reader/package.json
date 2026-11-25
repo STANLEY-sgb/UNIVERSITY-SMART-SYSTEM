@@ -1,0 +1,35 @@
+{
+  "name": "@kiu/reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3002 --strictPort",
+    "dev:lan": "vite --port 3002 --strictPort --host 0.0.0.0 --mode lan",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 3002 --strictPort",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kiu/ui": "workspace:*",
+    "@kiu/shared": "workspace:*",
+    "@kiu/vcard": "workspace:*",
+    "@kiu/offline-core": "workspace:*",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.468.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@kiu/security": "workspace:*",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.8.3",
+    "vite": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}

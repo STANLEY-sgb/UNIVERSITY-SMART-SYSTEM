@@ -1,0 +1,55 @@
+%% Core ERD (full column detail: prisma/schema.prisma, docs/DATABASE_DESIGN.md)
+erDiagram
+  USER ||--o{ USER_ROLE : has
+  ROLE ||--o{ USER_ROLE : grants
+  ROLE ||--o{ ROLE_PERMISSION : includes
+  PERMISSION ||--o{ ROLE_PERMISSION : in
+  USER ||--o{ SESSION : opens
+  USER |o--o| STUDENT : "student account"
+
+  DEPARTMENT ||--o{ PROGRAMME : offers
+  DEPARTMENT ||--o{ COURSE_UNIT : owns
+  PROGRAMME ||--o{ STUDENT : enrols
+  ACADEMIC_SESSION ||--o{ SEMESTER : contains
+  STUDENT ||--o{ STUDENT_STATUS : "facts per semester"
+  SEMESTER ||--o{ STUDENT_STATUS : scopes
+  STUDENT ||--o{ ENROLMENT : takes
+  COURSE_UNIT ||--o{ ENROLMENT : in
+  COURSE_UNIT ||--o{ EXAM_SESSION : examined
+  VENUE ||--o{ EXAM_SESSION : hosts
+  EXAM_SESSION ||--o{ EXAM_ATTENDANCE : records
+  STUDENT ||--o{ EXAM_ATTENDANCE : attends
+
+  STUDENT ||--o{ CARD : holds
+  CARD ||--o{ CARD_CREDENTIAL : "AES / Ed25519"
+  CARD ||--o{ CARD_EVENT : lifecycle
+  CARD ||--o{ CARD_REVOCATION : revoked
+  CARD |o--o| CARD : replaces
+
+  STUDENT ||--o{ BIOMETRIC_ENROLLMENT : "optional"
+  BIOMETRIC_ENROLLMENT ||--o{ BIOMETRIC_TEMPLATE : "encrypted"
+  BIOMETRIC_ENROLLMENT ||--o{ BIOMETRIC_CONSENT : consent
+  BIOMETRIC_ENROLLMENT ||--o{ BIOMETRIC_REVOCATION : revoked
+  BIOMETRIC_MODEL_VERSION ||--o{ BIOMETRIC_TEMPLATE : "made with"
+
+  SERVICE ||--|| ACCESS_RULE : governed
+  ACCESS_RULE ||--o{ ACCESS_RULE_VERSION : versions
+  SERVICE ||--o{ READER : served
+  VENUE ||--o{ READER : located
+  READER ||--o{ READER_CREDENTIAL : authenticates
+  READER ||--o{ READER_HEARTBEAT : beats
+  READER ||--o{ READER_CACHE_VERSION : cache
+  READER ||--o{ OFFLINE_LOG_BATCH : uploads
+
+  READER ||--o{ ACCESS_LOG : produces
+  STUDENT ||--o{ ACCESS_LOG : subject
+  CARD ||--o{ ACCESS_LOG : presented
+  ACCESS_RULE_VERSION ||--o{ ACCESS_LOG : applied
+  STUDENT ||--o{ ACCESS_OVERRIDE : granted
+  STUDENT ||--o{ MEAL_USAGE : claims
+  MEAL_SITTING ||--o{ MEAL_USAGE : per
+  STUDENT ||--o{ LIBRARY_LOAN : borrows
+  STUDENT ||--o{ HOSTEL_ALLOCATION : lodges
+  HOSTEL ||--o{ HOSTEL_ALLOCATION : houses
+  STUDENT ||--o{ PRESENCE_STATE : "anti-passback"
+  AUDIT_TRAIL }o--o| USER : actor

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#A700E8"/><stop offset="1" stop-color="#8F12EE"/></linearGradient>
+    <linearGradient id="magenta" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#CF00D2"/><stop offset="1" stop-color="#B400E0"/></linearGradient>
+    <linearGradient id="yellow" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#F4E101"/><stop offset="1" stop-color="#E2C600"/></linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#07C8C7"/><stop offset="0.65" stop-color="#19D4BF"/><stop offset="1" stop-color="#24E6CB"/></linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3EA1F6"/><stop offset="1" stop-color="#6071F3" stop-opacity=".55"/></linearGradient>
+    <radialGradient id="cyan" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#07E6F7"/><stop offset="1" stop-color="#4BE9AE"/></radialGradient>
+    <linearGradient id="lime" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#B9F641"/><stop offset="1" stop-color="#24E6CB" stop-opacity=".25"/></linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="#5B0079"/>
+  <polygon points="0,0 780,0 0,560" fill="url(#violet)"/>
+  <polygon points="0,560 780,0 980,0 0,760" fill="url(#magenta)"/>
+  <circle cx="320" cy="-70" r="400" fill="url(#sky)"/>
+  <polygon points="1010,330 1480,0 1600,0 1600,640 1340,700" fill="url(#yellow)"/>
+  <polygon points="0,830 700,380 1300,900 0,900" fill="url(#teal)"/>
+  <circle cx="1500" cy="650" r="240" fill="url(#cyan)" opacity=".92"/>
+  <circle cx="330" cy="1010" r="400" fill="url(#lime)"/>
+  <g fill="none" stroke-linecap="round">
+    <polyline points="0,900 700,560 1250,900" stroke="#E7F545" stroke-width="3" opacity=".9"/>
+    <polyline points="1160,340 1600,40" stroke="#F4E101" stroke-width="3" opacity=".75"/>
+    <polyline points="0,640 520,220" stroke="#F4E101" stroke-width="2.5" opacity=".7"/>
+    <g stroke="#fff" stroke-width="3" opacity=".55">
+      <rect x="-30" y="-30" width="60" height="60" transform="translate(220 150) rotate(45)"/><rect x="-16" y="-16" width="32" height="32" transform="translate(220 150) rotate(45)"/>
+      <rect x="-30" y="-30" width="60" height="60" transform="translate(1520 470) rotate(45)" stroke="#F4E101"/><rect x="-16" y="-16" width="32" height="32" transform="translate(1520 470) rotate(45)" stroke="#F4E101"/>
+      <rect x="-30" y="-30" width="60" height="60" transform="translate(180 760) rotate(45)" stroke="#9CF9FF"/><rect x="-16" y="-16" width="32" height="32" transform="translate(180 760) rotate(45)" stroke="#9CF9FF"/>
+    </g>
+    <g stroke="#fff" stroke-width="2" stroke-dasharray="2 5" opacity=".45">
+      <path d="M90 330h60M90 348h60M90 366h60M90 382h60"/><path d="M1500 110h60M1500 128h60M1500 146h60M1500 162h60" stroke="#F4E101"/><path d="M880 760h60M880 778h60M880 796h60M880 812h60" stroke="#CFFFF6"/>
+    </g>
+  </g>
+</svg>

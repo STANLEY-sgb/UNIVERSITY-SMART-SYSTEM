@@ -1,0 +1,24 @@
+{
+  "name": "@kiu/reader-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop wrapper for apps/reader. Loads the live reader URL so existing cookie auth keeps working; allows camera access for QR/face scanning.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@kiu/desktop-shell": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.kiu.reader-desktop",
+    "productName": "KIU Reader",
+    "files": ["main.js"],
+    "win": { "target": "nsis" }
+  }
+}

@@ -1,0 +1,72 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+env:
+  JWT_ACCESS_SECRET: ci-only-secret-0123456789abcdef0123456789
+  DATA_ENCRYPTION_KEY: ZGV2LW9ubHkta2V5LTAxMjM0NTY3ODktYWJjZGVmLWs=
+  CARD_MASTER_KEY: 00ff11ee22dd33cc44bb55aa66997788
+  CACHE_SIGNING_KEY: 5e2e5e2e5e2e5e2e0123456789abcdef5e2e5e2e5e2e5e2e0123456789abcdef
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: kiu
+          POSTGRES_PASSWORD: kiu_dev_password
+          POSTGRES_DB: kiu_uscas_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kiu" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://kiu:kiu_dev_password@localhost:5432/kiu_uscas_test?schema=public
+      # No PgBouncer in front of the CI Postgres service, so direct == pooled (prisma/schema.prisma `directUrl`).
+      DIRECT_URL: postgresql://kiu:kiu_dev_password@localhost:5432/kiu_uscas_test?schema=public
+      TEST_DATABASE_URL: postgresql://kiu:kiu_dev_password@localhost:5432/kiu_uscas_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:deploy
+      # Exclude the Electron desktop wrappers: packaging a Windows installer needs Wine/NSIS
+      # tooling this runner doesn't have. They're not part of the web/API deployment anyway.
+      - run: pnpm turbo run build --filter='!./apps/*-desktop'
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  # Real-browser tests: embedded PostgreSQL + compiled API + production builds of the wallet and reader.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://x:x@localhost:5432/x
+          DIRECT_URL: postgresql://x:x@localhost:5432/x
+      - run: pnpm --filter @kiu/api build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            e2e/.results
+            docs/evidence/screenshots

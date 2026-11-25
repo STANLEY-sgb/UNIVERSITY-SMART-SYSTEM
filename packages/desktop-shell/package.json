@@ -1,0 +1,14 @@
+{
+  "name": "@kiu/desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Electron main-process shell: a BrowserWindow pointed at a live KIU web app URL (not a bundled copy, so the existing httpOnly-cookie auth keeps working across origins).",
+  "main": "src/index.js",
+  "scripts": {
+    "typecheck": "echo \"plain JS, no build step\""
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
