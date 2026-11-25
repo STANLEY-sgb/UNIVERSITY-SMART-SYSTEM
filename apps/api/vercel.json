@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm --filter @kiu/api... install --frozen-lockfile --ignore-scripts",
+  "installCommand": "cd ../.. && pnpm --filter @kiu/api... install --frozen-lockfile --ignore-scripts --network-concurrency=1",
   "buildCommand": "cd ../.. && pnpm --filter @kiu/api... rebuild && pnpm db:generate && pnpm turbo run build --filter=@kiu/api",
   "functions": {
     "api/[...path].js": {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm --filter @kiu/admin... install --frozen-lockfile --ignore-scripts",
+  "installCommand": "cd ../.. && pnpm --filter @kiu/admin... install --frozen-lockfile --ignore-scripts --network-concurrency=1",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@kiu/admin && pnpm --filter @kiu/admin exec vite build --mode vercel",
   "outputDirectory": "dist",
   "rewrites": [

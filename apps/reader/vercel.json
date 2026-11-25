@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm --filter @kiu/reader... install --frozen-lockfile --ignore-scripts",
+  "installCommand": "cd ../.. && pnpm --filter @kiu/reader... install --frozen-lockfile --ignore-scripts --network-concurrency=1",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@kiu/reader",
   "outputDirectory": "dist",
   "rewrites": [
