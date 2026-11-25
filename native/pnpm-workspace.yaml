@@ -1,0 +1,6 @@
+packages:
+  - "*-desktop"
+  - "*-mobile"
+  - "packages/*"
+onlyBuiltDependencies:
+  - electron

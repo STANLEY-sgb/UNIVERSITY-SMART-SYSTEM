@@ -42,7 +42,6 @@
       "@prisma/client",
       "@prisma/engines",
       "argon2",
-      "electron",
       "esbuild",
       "prisma",
       "turbo"

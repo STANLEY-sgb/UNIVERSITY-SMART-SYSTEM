@@ -9,6 +9,7 @@ backups
 .env.production
 .env.*.local
 .vercel
+.claude
 coverage
 *.tsbuildinfo
 Thumbs.db

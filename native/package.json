@@ -1,0 +1,10 @@
+{
+  "name": "kiu-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop and Capacitor mobile wrappers for KIU-USCAS. Kept as a separate pnpm workspace on purpose: their dependency trees (Electron binaries, Android/Capacitor tooling) are large and otherwise get dragged into every install the web apps and API do, which is what caused Vercel's build machine to run out of memory. See ../docs/DEPLOY_VERCEL_SUPABASE.md.",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=20.18"
+  }
+}

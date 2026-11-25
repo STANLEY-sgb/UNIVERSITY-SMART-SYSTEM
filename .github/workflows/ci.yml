@@ -38,9 +38,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm db:deploy
-      # Exclude the Electron desktop wrappers: packaging a Windows installer needs Wine/NSIS
-      # tooling this runner doesn't have. They're not part of the web/API deployment anyway.
-      - run: pnpm turbo run build --filter='!./apps/*-desktop'
+      - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
 
